@@ -1,0 +1,191 @@
+#!/usr/bin/env bash
+# herdr-agent — thin helper for spawning Pi and sending text through Herdr.
+# Usage:
+#   herdr-agent spawn <label> [--model X] [--provider X] [--thinking X]
+#   herdr-agent task <pane-id> <text>
+#
+# Default: deepseek-v4-flash / opencode-go / max
+# The task command sends text unchanged, requires Pi to be ready (idle or done),
+# submits long multiline prompts with paced text/Enter delivery, and returns only
+# after Pi acknowledges the task. Recovery retries Enter only, never the payload.
+
+set -euo pipefail
+
+usage() {
+  cat >&2 <<'EOF'
+Usage:
+  herdr-agent spawn <label> [--model X] [--provider X] [--thinking X]
+  herdr-agent task <pane-id> <task text>
+EOF
+}
+
+fail_spawn() {
+  local pane="$1"
+  local message="$2"
+
+  echo "$message" >&2
+  herdr pane read "$pane" --source recent-unwrapped --lines 30 >&2 || true
+  herdr agent get "$pane" >&2 || true
+  herdr pane close "$pane" >/dev/null 2>&1 || true
+  exit 1
+}
+
+wait_for_pi_ready() {
+  local pane="$1"
+  local deadline=$((SECONDS + 45))
+  local info=""
+  local agent=""
+  local status=""
+
+  while (( SECONDS < deadline )); do
+    if info=$(herdr agent get "$pane" 2>/dev/null); then
+      read -r agent status < <(python3 -c '
+import json, sys
+agent = json.load(sys.stdin)["result"]["agent"]
+print(agent.get("agent", ""), agent.get("agent_status", ""))
+' <<< "$info")
+
+      if [[ "$agent" == "pi" && "$status" == "idle" ]]; then
+        return 0
+      fi
+      if [[ "$status" == "done" ]]; then
+        return 1
+      fi
+    fi
+    sleep 0.25
+  done
+
+  return 1
+}
+
+agent_status() {
+  local pane="$1"
+  herdr agent get "$pane" | python3 -c '
+import json, sys
+print(json.load(sys.stdin)["result"]["agent"]["agent_status"])
+'
+}
+
+wait_for_task_start() {
+  local pane="$1"
+  local timeout_ms="${HERDR_TASK_START_TIMEOUT_MS:-15000}"
+  local status=""
+
+  if herdr agent wait "$pane" --status working --timeout "$timeout_ms" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  status=$(agent_status "$pane" 2>/dev/null || true)
+  [[ "$status" == "working" || "$status" == "blocked" ]]
+}
+
+submit_task() {
+  local pane="$1"
+  local text="$2"
+  local submit_delay="${HERDR_TASK_SUBMIT_DELAY_SECONDS:-0.25}"
+
+  # Keep payload delivery and submission separate. A long bracketed paste can
+  # still be settling when an immediate Enter from `pane run` arrives.
+  herdr pane send-text "$pane" "$text"
+  sleep "$submit_delay"
+  herdr pane send-keys "$pane" Enter
+
+  if wait_for_task_start "$pane"; then
+    return 0
+  fi
+
+  # The payload may be staged in Pi's editor with the first Enter lost. Retry
+  # only Enter so recovery cannot duplicate the brief.
+  herdr pane send-keys "$pane" Enter
+  if wait_for_task_start "$pane"; then
+    return 0
+  fi
+
+  echo "Pi did not acknowledge the staged task in pane $pane after an Enter-only retry" >&2
+  herdr agent get "$pane" >&2 || true
+  herdr pane read "$pane" --source recent-unwrapped --lines 40 >&2 || true
+  return 1
+}
+
+cmd="${1:-}"
+shift 2>/dev/null || true
+
+MODEL="deepseek-v4-flash"
+PROVIDER="opencode-go"
+THINKING="max"
+
+case "$cmd" in
+  spawn)
+    LABEL=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --model)     [[ $# -ge 2 ]] || { echo "Missing value for --model" >&2; exit 1; }; MODEL="$2"; shift 2 ;;
+        --provider)  [[ $# -ge 2 ]] || { echo "Missing value for --provider" >&2; exit 1; }; PROVIDER="$2"; shift 2 ;;
+        --thinking)  [[ $# -ge 2 ]] || { echo "Missing value for --thinking" >&2; exit 1; }; THINKING="$2"; shift 2 ;;
+        -*)          echo "Unknown flag: $1" >&2; exit 1 ;;
+        *)           LABEL="$1"; shift ;;
+      esac
+    done
+
+    if [ -z "$LABEL" ]; then
+      usage
+      exit 1
+    fi
+
+    # Create tab, get pane-id
+    PANE=$(herdr tab create --workspace "$HERDR_WORKSPACE_ID" 2>/dev/null | python3 -c "
+import json, sys
+print(json.load(sys.stdin)['result']['root_pane']['pane_id'])
+")
+    if [ -z "$PANE" ]; then
+      echo "Failed to create tab" >&2
+      exit 1
+    fi
+
+    # Rename
+    herdr pane rename "$PANE" "$LABEL" >/dev/null 2>&1
+
+    # Launch Pi, then wait until Herdr identifies this pane as an idle Pi agent.
+    # Checking identity avoids mistaking the initial idle shell for a ready agent.
+    herdr pane run "$PANE" "pi --minimal-tui --offline --provider $PROVIDER --model $MODEL --thinking $THINKING" >/dev/null 2>&1
+
+    if ! wait_for_pi_ready "$PANE"; then
+      fail_spawn "$PANE" "Pi did not become ready in pane $PANE"
+    fi
+
+    # Report metadata: show agent + model on the pane
+    herdr pane report-metadata "$PANE" \
+      --source herdr-agent \
+      --display-agent "pi $MODEL $THINKING" \
+      --title "$LABEL ($MODEL $THINKING)" \
+      --ttl-ms 86400000 >/dev/null 2>&1 || true
+
+    echo "$PANE"
+    ;;
+
+  task)
+    PANE="${1:-}"
+    if [[ $# -gt 0 ]]; then
+      shift
+    fi
+    TEXT="${*:-}"
+
+    if [ -z "$PANE" ] || [ -z "$TEXT" ]; then
+      usage
+      exit 1
+    fi
+
+    STATUS=$(agent_status "$PANE")
+    if [[ "$STATUS" != "idle" && "$STATUS" != "done" ]]; then
+      echo "Agent $PANE is $STATUS; refusing to send a task unless it is ready (idle or done)" >&2
+      exit 1
+    fi
+
+    submit_task "$PANE" "$TEXT"
+    ;;
+
+  *)
+    usage
+    exit 1
+    ;;
+esac

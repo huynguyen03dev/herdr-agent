@@ -25,6 +25,8 @@ herder-agent/
 │   ├── codex-hooks.example.json
 │   ├── herdr-agent-state.codex.sh
 │   └── herdr-agent-state.claude.sh
+├── docs/
+│   └── giao-an-herdr.md            # the source philosophy, transcribed to text (reference only)
 └── README.md
 ```
 
@@ -121,4 +123,6 @@ Spawn Claude co-workers with their role file appended to the brief.
   to images.
 - Keep the profile set small. Add a new role only when a behavior repeats and
   re-writing its instruction each time is clearly wasteful.
-- The full philosophy behind these files: *Giáo Án Herdr — First edition*.
+- The full philosophy behind these files: [*Giáo Án Herdr — First edition*](docs/giao-an-herdr.md)
+  (Vietnamese) — a reference doc, not a profile. Co-workers never read it; consult
+  it only when designing or tuning `root_instruction.md` and the roles.

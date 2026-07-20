@@ -40,7 +40,8 @@ cannot answer, the system has lost transparency — fix that first.
 2. Record every pane ID you create. **Never** inspect, poll, or close a pane you
    did not create. **Never** run `herdr server stop`.
 3. Do not commit, revert, delete, or overwrite work unless the user explicitly
-   asks. This repo often has in-progress work in root and nested repos.
+   asks. A working tree may hold in-progress work you did not create, including
+   in any nested repositories the project uses.
 4. Only **one** personnel protocol runs this room — Herdr. Do not also rely on a
    sub-agent framework. Co-workers must not spawn their own co-workers.
 5. You keep the final synthesis and the answer to the user. That is always yours.
@@ -99,6 +100,15 @@ load:
   questions, and high-risk analysis. For a high-risk problem, prefer **several
   independent peers** over one answer.
 
+Keep implementation on `deepseek-v4-flash` by default — do not escalate by scope.
+Step the implementer up only on evidence: when its output keeps failing review or
+tests and it cannot iterate to a clean result, move it to `glm-5.2 --thinking
+medium` (skip `mimo-v2.5-pro` here — a capable reviewer but a weak implementer).
+The same `glm-5.2` at high/max thinking is your architecture and critique tier;
+thinking level sets the tier, not a different model. A sensitive or
+large-blast-radius edit is guarded by a stronger reviewer and proof auditor over
+the change, not by a costlier implementer.
+
 Two rules hold regardless of tier:
 
 - Never reduce a strong co-worker to a true/false confirmation function. Give it
@@ -143,22 +153,16 @@ possibilities you have not considered. Share observed symptoms and prior
 findings as data, but withhold your diagnosis and preferred solution — that line
 is what separates useful context from anchoring.
 
-Ask every co-worker to return, in order:
-
-1. observations and evidence first;
-2. plausible alternatives, unknowns, and uncertainty;
-3. their recommendation and rationale;
-4. changed files and validation, if they implemented anything;
-5. blockers or questions.
-
-State the mode explicitly: **read-only analysis** (review, exploration,
-planning) or **implementation** (edits intended). In an implementation brief,
-always include the repository-safety constraint: do not revert, delete, or
-overwrite existing or in-progress work; leave committing to root. Pi runs
-autonomously; an unbriefed implementer may destroy uncommitted work.
+The **role carries the rest** — do not restate it in the brief. Read-only vs
+edit is set by which role you pick (`implementer` edits its scope; `peer`,
+`reviewer`, `scout`, `proof_auditor` are read-only), and each role's profile
+already holds its repository-safety rules and what to return (evidence first,
+alternatives, recommendation, blockers). Pick the right role instead of writing
+a mode line.
 
 Record the repository status before dispatch as a pre-task baseline
-(`git status --short` and `git -C valaframework status --short`).
+(`git status --short`, plus the status of any nested working trees the project
+uses).
 
 ### Dispatch
 
@@ -168,7 +172,6 @@ prompt; you only choose the role and the model:
 ```bash
 PANE=$(herdr-agent spawn <label> --role implementer --model deepseek-v4-flash)
 BRIEF=$(cat <<'TASK'
-Mode: <Read-only analysis | Implementation>
 Goal:
 Raw context and relevant paths:
 Scope and constraints:
@@ -190,12 +193,20 @@ reading any one's conclusion.
 
 ## 7. Read, assess, finish
 
-Wait for the co-worker, then read its pane directly — no handoff file:
+Wait for the co-worker on its completion signal, then read its pane directly —
+no handoff file:
 
 ```bash
-herdr agent wait "$PANE" --status idle --timeout 180000
+herdr wait agent-status "$PANE" --status done --timeout 180000
 herdr pane read "$PANE" --source recent-unwrapped --lines 120
 ```
+
+`done` is the completion signal — a pi co-worker finishes there, then the state
+decays back to `idle`. Do not wait on `idle`: it is ambiguous (a freshly spawned
+co-worker sits in `idle` too), and `herdr agent wait` cannot match `done` at all
+— only `herdr wait agent-status` can. If the wait times out because `done`
+already decayed, `herdr agent get` settling on `idle` after a dispatched task is
+itself a completion, not a stall.
 
 Treat pane output as evidence, not authority. Read the full first response
 before challenging. Then follow up to test assumptions, request stronger

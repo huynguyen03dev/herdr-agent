@@ -102,12 +102,13 @@ load:
 
 Keep implementation on `deepseek-v4-flash` by default — do not escalate by scope.
 Step the implementer up only on evidence: when its output keeps failing review or
-tests and it cannot iterate to a clean result, move it to `glm-5.2 --thinking
-medium` (skip `mimo-v2.5-pro` here — a capable reviewer but a weak implementer).
-The same `glm-5.2` at high/max thinking is your architecture and critique tier;
-thinking level sets the tier, not a different model. A sensitive or
-large-blast-radius edit is guarded by a stronger reviewer and proof auditor over
-the change, not by a costlier implementer.
+tests and it cannot iterate to a clean result, move it to `glm-5.2` (the helper
+gives an implementer the medium tier automatically; skip `mimo-v2.5-pro` here — a
+capable reviewer but a weak implementer). The same `glm-5.2` at the high tier is
+your architecture and critique tier — the helper sets that tier from the role, so
+you escalate by changing the model or the role, never by hand-tuning thinking. A
+sensitive or large-blast-radius edit is guarded by a stronger reviewer and proof
+auditor over the change, not by a costlier implementer.
 
 Two rules hold regardless of tier:
 
@@ -118,8 +119,8 @@ Two rules hold regardless of tier:
   survive a direct check.
 
 Set the model when you spawn (`herdr-agent spawn <label> --role <role> --model
-<model>`); the helper resolves the provider. The execution default is
-`deepseek-v4-flash`.
+<model>`); the helper resolves the provider and the thinking tier from model +
+role. The execution default is `deepseek-v4-flash`.
 
 ---
 

@@ -122,6 +122,7 @@ shift 2>/dev/null || true
 MODEL="deepseek-v4-flash"
 PROVIDER=""          # empty → inferred from MODEL at spawn time
 THINKING="max"
+THINKING_SET=0       # 1 once --thinking is passed explicitly
 
 case "$cmd" in
   spawn)
@@ -132,7 +133,7 @@ case "$cmd" in
         --role)      [[ $# -ge 2 ]] || { echo "Missing value for --role" >&2; exit 1; }; ROLE="$2"; shift 2 ;;
         --model)     [[ $# -ge 2 ]] || { echo "Missing value for --model" >&2; exit 1; }; MODEL="$2"; shift 2 ;;
         --provider)  [[ $# -ge 2 ]] || { echo "Missing value for --provider" >&2; exit 1; }; PROVIDER="$2"; shift 2 ;;
-        --thinking)  [[ $# -ge 2 ]] || { echo "Missing value for --thinking" >&2; exit 1; }; THINKING="$2"; shift 2 ;;
+        --thinking)  [[ $# -ge 2 ]] || { echo "Missing value for --thinking" >&2; exit 1; }; THINKING="$2"; THINKING_SET=1; shift 2 ;;
         -*)          echo "Unknown flag: $1" >&2; exit 1 ;;
         *)           LABEL="$1"; shift ;;
       esac
@@ -165,6 +166,18 @@ case "$cmd" in
         *)      PROVIDER="opencode-go" ;;      # deepseek-v4-flash, mimo-v2.5-pro
       esac
     fi
+
+    # Derive thinking from model + role unless the caller set it explicitly.
+    # deepseek → max (auto); mimo → high ceiling; glm → high, medium for implementer.
+    if [ "$THINKING_SET" -eq 0 ]; then
+      case "$MODEL" in
+        glm-*)  [ "$ROLE" = "implementer" ] && THINKING="medium" || THINKING="high" ;;
+        mimo-*) THINKING="high" ;;
+        *)      THINKING="max" ;;              # deepseek-v4-flash
+      esac
+    fi
+    # mimo has no max tier — clamp even an explicit request.
+    case "$MODEL" in mimo-*) [ "$THINKING" = "max" ] && THINKING="high" ;; esac
 
     # Create tab, get pane-id
     PANE=$(herdr tab create --workspace "$HERDR_WORKSPACE_ID" 2>/dev/null | python3 -c "

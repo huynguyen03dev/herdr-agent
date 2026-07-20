@@ -76,26 +76,27 @@ resolves per-user on any machine (no absolute `/home/<name>` baked in).
 
 ### pi (primary co-worker runtime)
 
-`--append-system-prompt` accepts file contents and may repeat. Spawn a co-worker
-with its role file as an appended system prompt:
+Use the `bin/herdr-agent` helper — `--role <name>` injects that role's profile
+as the pi system prompt, so callers pick a role and a model, nothing else:
+
+```bash
+PANE=$(herdr-agent spawn review-auth --role reviewer --model deepseek-v4-flash)
+herdr-agent task "$PANE" "<brief>"
+```
+
+Under the hood that resolves `${HERDER_AGENT_HOME:-$HOME/herder-agent}/profiles/<role>_instruction.md`
+and launches pi with `--append-system-prompt "$(cat <file>)"`. The equivalent
+raw invocation:
 
 ```bash
 pi --provider opencode-go --model deepseek-v4-flash --thinking max --minimal-tui \
-   --append-system-prompt "$(cat ~/herder-agent/profiles/implementer_instruction.md)" \
+   --append-system-prompt "$(cat ~/herder-agent/profiles/reviewer_instruction.md)" \
    -p "<brief>"
 ```
 
-Spawned through Herdr as a pane:
-
-```bash
-herdr agent start impl --workspace "$HERDR_WORKSPACE_ID" --cwd "$PWD" --no-focus \
-  -- pi --provider opencode-go --model deepseek-v4-flash --thinking max --minimal-tui \
-       --append-system-prompt "$(cat ~/herder-agent/profiles/peer_instruction.md)"
-```
-
-The `herdr-agent spawn` convenience helper (in `bin/`) forwards only
-`--model/--provider/--thinking`. To use a role with it, prepend the role file to
-the brief instead of relying on the system prompt.
+`--role` accepts any role except `root` (root is the director, never a
+co-worker). Model stays the caller's choice — the helper only handles profile
+injection.
 
 ### Codex
 

@@ -80,53 +80,56 @@ task in your own context.
 
 ## 4. Choosing co-workers
 
-Choose each co-worker by the work, not by a fixed model. Co-workers are mainly
-**pi**. Pin the model so a worker never inherits an unexpected (and costlier)
-default.
+Route by **capability, not by a "main" or "sub" label**. Quality depends on the
+instruction, the room to reason, the context, the felt authority, how you ask,
+and the kind of task — not on the model's rank alone.
 
-| Work | Default | Escalate when |
-| --- | --- | --- |
-| Execution (explore, implement, tests) | `pi --provider opencode-go --model deepseek-v4-flash --thinking max` | rarely — volume work does not need more |
-| Planning / design / architecture deliverable | `claude --model opus` | if it dies/stalls: `pi openai-codex-3/gpt-5.6-sol :medium`, then `pi zai-coding-cn/glm-5.2 :high` |
-| Review | `pi --provider opencode-go --model mimo-v2.5-pro` (independent lineage) | high-stakes (security/auth/data/contracts/subtle correctness): `claude → gpt-5.6-sol → glm-5.2` |
-| Debugging | `pi deepseek-v4-flash` cheap-first, **diagnosis must be verified** | gnarly/known-hard: strong worker, or two independent diagnoses to compare |
+Co-workers run **pi only**. The expensive model (Claude) is reserved for you,
+the director — never spawn it as a co-worker. Map the pi models to cognitive
+load:
 
-Rules that make routing sound:
+- **`deepseek-v4-flash`** (default) — execution, implementation, scouting,
+  navigation, extraction. It maps the terrain; it does not judge it. Never let
+  it deliver a hard conclusion about root cause, architecture, security,
+  concurrency, data integrity, or a large-blast-radius decision — a wrong
+  conclusion here costs you more to unwind than it saved.
+- **Peer and reviewer** (deep critique, correctness / risk review) — prefer
+  **`glm-5.2`**, fall back to **`mimo-v2.5-pro`**, then `deepseek-v4-flash`.
+  `glm-5.2` is your strongest co-worker; use it for architecture, foundation
+  questions, and high-risk analysis. For a high-risk problem, prefer **several
+  independent peers** over one answer.
 
-- A reviewer must never share the implementer's model — same model, same blind
-  spots. If the author was Claude, start the reviewer one step down.
-- Planning sets the direction everything inherits. Step down the planning chain
-  only when the current planner is genuinely unavailable (fails to spawn, dies,
-  stops responding) — a weak first answer is something you *challenge*, not a
-  reason to switch models.
-- A debugging diagnosis is not a fix license: the root cause must reproduce the
-  symptom and survive a quick direct check before any fix is built on it.
+Two rules hold regardless of tier:
 
-Match model tier to cognitive load. A weak model is fine for scouting,
-extraction, indexing, and navigation. Never let a weak model deliver a hard
-conclusion about root cause, architecture, security, concurrency, data
-integrity, or a large-blast-radius decision.
+- Never reduce a strong co-worker to a true/false confirmation function. Give it
+  room to find what you did not ask about.
+- A conclusion from a weak model — or any diagnosis you will build on — must be
+  verified before you act on it: the cause must reproduce the symptom and
+  survive a direct check.
+
+Set the model when you spawn (`herdr-agent spawn <label> --role <role> --model
+<model>`); the helper resolves the provider. The execution default is
+`deepseek-v4-flash`.
 
 ---
 
 ## 5. Profiles
 
-This room uses a small, fixed set of profiles. Co-worker profiles live beside
-this file and are injected into the worker — see §6. **Only root loads
-`root_instruction.md`.** Co-workers never receive Herdr instructions.
+This room fields a small, fixed set of roles. You field one by name —
+`herdr-agent spawn <label> --role <role>` — and the helper injects that role's
+system prompt for you; you never handle the profile files yourself. **Only you,
+the root, hold Herdr instructions.** Co-workers receive only their role and never
+learn Herdr exists.
 
-- **`implementer_instruction.md`** — owns one feature / edit scope; the only
-  profile with edit rights in that scope.
-- **`peer_instruction.md`** — independent perspective: architecture, design
-  critique, risk, assumptions, comparing approaches. Read-only by default.
-- **`reviewer_instruction.md`** — read-only correctness / maintainability / risk
-  review; independent of the implementer.
-- **`scout_instruction.md`** — surveys the codebase and produces a wayfinding
-  artifact; never concludes hard architecture, never edits.
-- **`proof_auditor_instruction.md`** — checks whether evidence actually proves
-  the claim; detects fake, flaky, or non-covering tests.
+| Role | For | Edits code? |
+| --- | --- | --- |
+| `implementer` | owns one feature / edit scope | yes, in that scope |
+| `peer` | independent perspective — architecture, critique, risk, comparing approaches | no (read-only) |
+| `reviewer` | correctness / maintainability / risk review of a change | no (read-only) |
+| `scout` | surveys the codebase, produces a wayfinding artifact; never concludes hard architecture | no |
+| `proof_auditor` | checks whether evidence actually proves the claim; catches fake / flaky / non-covering tests | no |
 
-Do not create more profiles early. Each new profile adds configs to maintain,
+Do not create more roles early. Each new profile adds configs to maintain,
 conflict surface, and choosing cost. Add one only when a behavior repeats and
 re-writing its instruction each time is clearly wasteful.
 
@@ -157,21 +160,13 @@ autonomously; an unbriefed implementer may destroy uncommitted work.
 Record the repository status before dispatch as a pre-task baseline
 (`git status --short` and `git -C valaframework status --short`).
 
-### Injecting a profile
+### Dispatch
 
-Preferred — spawn pi directly with the role file as an appended system prompt:
-
-```bash
-PANE=$(herdr agent start <label> --workspace "$HERDR_WORKSPACE_ID" --cwd "$PWD" --no-focus \
-  -- pi --provider opencode-go --model deepseek-v4-flash --thinking max --minimal-tui \
-       --append-system-prompt "$(cat ~/herder-agent/profiles/implementer_instruction.md)" \
-  | python3 -c "import json,sys;print(json.load(sys.stdin)['result']['agent']['pane_id'])")
-herdr agent wait "$PANE" --status idle
-```
-
-Then send the brief:
+Field the role, then send the brief. The helper injects the role's system
+prompt; you only choose the role and the model:
 
 ```bash
+PANE=$(herdr-agent spawn <label> --role implementer --model deepseek-v4-flash)
 BRIEF=$(cat <<'TASK'
 Mode: <Read-only analysis | Implementation>
 Goal:
@@ -181,20 +176,12 @@ Open question to investigate:
 Expected evidence and validation:
 TASK
 )
-herdr agent send "$PANE" "$BRIEF"; herdr pane send-keys "$PANE" Enter
+herdr-agent task "$PANE" "$BRIEF"
 ```
 
-Fallback — for the default deepseek worker via the convenience helper, the
-`herdr-agent spawn` helper forwards only `--model/--provider/--thinking`, so
-prepend the role file to the brief instead:
-
-```bash
-PANE=$(herdr-agent spawn <label> --provider opencode-go --model deepseek-v4-flash --thinking max)
-herdr-agent task "$PANE" "$(cat ~/herder-agent/profiles/peer_instruction.md; echo; echo '---'; echo "$BRIEF")"
-```
-
-For a Claude planning co-worker, spawn `claude --model opus` the same way and
-send the brief with `herdr agent send`.
+Heavy planning, architecture, or deep critique goes to a strong pi peer
+(`glm-5.2`) through the same `spawn --role peer` path — not to a Claude
+co-worker. Claude is yours alone, as the director.
 
 For competing approaches, send independent briefs to each co-worker **before**
 reading any one's conclusion.

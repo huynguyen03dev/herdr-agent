@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 # herdr-agent — thin helper for spawning Pi and sending text through Herdr.
 # Usage:
-#   herdr-agent spawn <label> [--model X] [--provider X] [--thinking X]
+#   herdr-agent spawn <label> [--role NAME] [--model X] [--provider X] [--thinking X]
 #   herdr-agent task <pane-id> <text>
+#
+# --role NAME injects the role's system prompt from
+#   ${HERDER_AGENT_HOME:-$HOME/herder-agent}/profiles/<NAME>_instruction.md
+# (e.g. --role implementer|peer|reviewer|scout|proof_auditor). Model stays the
+# caller's choice; the helper only handles profile injection.
 #
 # Default: deepseek-v4-flash / opencode-go / max
 # The task command sends text unchanged, requires Pi to be ready (idle or done),
@@ -14,9 +19,13 @@ set -euo pipefail
 usage() {
   cat >&2 <<'EOF'
 Usage:
-  herdr-agent spawn <label> [--model X] [--provider X] [--thinking X]
+  herdr-agent spawn <label> [--role NAME] [--model X] [--provider X] [--thinking X]
   herdr-agent task <pane-id> <task text>
 EOF
+}
+
+profiles_dir() {
+  echo "${HERDER_AGENT_HOME:-$HOME/herder-agent}/profiles"
 }
 
 fail_spawn() {
@@ -111,14 +120,16 @@ cmd="${1:-}"
 shift 2>/dev/null || true
 
 MODEL="deepseek-v4-flash"
-PROVIDER="opencode-go"
+PROVIDER=""          # empty → inferred from MODEL at spawn time
 THINKING="max"
 
 case "$cmd" in
   spawn)
     LABEL=""
+    ROLE=""
     while [[ $# -gt 0 ]]; do
       case "$1" in
+        --role)      [[ $# -ge 2 ]] || { echo "Missing value for --role" >&2; exit 1; }; ROLE="$2"; shift 2 ;;
         --model)     [[ $# -ge 2 ]] || { echo "Missing value for --model" >&2; exit 1; }; MODEL="$2"; shift 2 ;;
         --provider)  [[ $# -ge 2 ]] || { echo "Missing value for --provider" >&2; exit 1; }; PROVIDER="$2"; shift 2 ;;
         --thinking)  [[ $# -ge 2 ]] || { echo "Missing value for --thinking" >&2; exit 1; }; THINKING="$2"; shift 2 ;;
@@ -130,6 +141,29 @@ case "$cmd" in
     if [ -z "$LABEL" ]; then
       usage
       exit 1
+    fi
+
+    # Resolve an optional role profile. The pane shell reads the file at run
+    # time via $(cat ...), so only a short path is typed into the pane and the
+    # profile contents never need escaping here.
+    APPEND=""
+    if [ -n "$ROLE" ]; then
+      PDIR="$(profiles_dir)"
+      ROLE_FILE="$PDIR/${ROLE}_instruction.md"
+      if [ ! -f "$ROLE_FILE" ]; then
+        echo "Unknown role '$ROLE'. Available roles:" >&2
+        ls "$PDIR" 2>/dev/null | sed -n 's/_instruction\.md$//p' | grep -vx root >&2
+        exit 1
+      fi
+      APPEND=" --append-system-prompt \"\$(cat '$ROLE_FILE')\""
+    fi
+
+    # Infer the provider from the model when it was not passed explicitly.
+    if [ -z "$PROVIDER" ]; then
+      case "$MODEL" in
+        glm-*)  PROVIDER="zai-coding-cn" ;;   # glm-5.2
+        *)      PROVIDER="opencode-go" ;;      # deepseek-v4-flash, mimo-v2.5-pro
+      esac
     fi
 
     # Create tab, get pane-id
@@ -147,17 +181,18 @@ print(json.load(sys.stdin)['result']['root_pane']['pane_id'])
 
     # Launch Pi, then wait until Herdr identifies this pane as an idle Pi agent.
     # Checking identity avoids mistaking the initial idle shell for a ready agent.
-    herdr pane run "$PANE" "pi --minimal-tui --offline --provider $PROVIDER --model $MODEL --thinking $THINKING" >/dev/null 2>&1
+    herdr pane run "$PANE" "pi --minimal-tui --offline --provider $PROVIDER --model $MODEL --thinking $THINKING$APPEND" >/dev/null 2>&1
 
     if ! wait_for_pi_ready "$PANE"; then
       fail_spawn "$PANE" "Pi did not become ready in pane $PANE"
     fi
 
-    # Report metadata: show agent + model on the pane
+    # Report metadata: show role (if any) + agent + model on the pane
+    ROLE_TAG="${ROLE:+$ROLE }"
     herdr pane report-metadata "$PANE" \
       --source herdr-agent \
-      --display-agent "pi $MODEL $THINKING" \
-      --title "$LABEL ($MODEL $THINKING)" \
+      --display-agent "${ROLE_TAG}pi $MODEL $THINKING" \
+      --title "$LABEL (${ROLE_TAG}$MODEL $THINKING)" \
       --ttl-ms 86400000 >/dev/null 2>&1 || true
 
     echo "$PANE"

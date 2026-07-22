@@ -1,0 +1,17 @@
+onboarding = false
+[keys]
+prefix = "ctrl+space"
+
+[ui]
+agent_panel_sort = "spaces"
+
+[ui.sidebar.agents]
+row_gap = 0
+rows = [
+  [ "state_icon", "workspace", "tab" ],
+  [ "state_text", "agent", "$role" ],
+  [ "$model", "$effort" ],
+]
+
+[update]
+channel = "preview"

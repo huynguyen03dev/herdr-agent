@@ -201,11 +201,18 @@ print(json.load(sys.stdin)['result']['root_pane']['pane_id'])
     fi
 
     # Report metadata: show role (if any) + agent + model on the pane
-    ROLE_TAG="${ROLE:+$ROLE }"
+    # Report metadata: keep `agent` short ("pi") so the sidebar's state line
+    # (idle · pi · reviewer) never truncates. Role/model/effort go to custom
+    # tokens so config.toml can split them across sidebar lines.
+    # Role goes next to state+agent on the second line.
+    # Model+effort go on a third line as separate tokens.
     herdr pane report-metadata "$PANE" \
       --source herdr-agent \
-      --display-agent "${ROLE_TAG}pi $MODEL $THINKING" \
-      --title "$LABEL (${ROLE_TAG}$MODEL $THINKING)" \
+      --display-agent "pi" \
+      --title "$LABEL" \
+      --token role="${ROLE:-}" \
+      --token model="$MODEL" \
+      --token effort="$THINKING" \
       --ttl-ms 86400000 >/dev/null 2>&1 || true
 
     echo "$PANE"

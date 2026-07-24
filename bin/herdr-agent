@@ -75,23 +75,59 @@ print(json.load(sys.stdin)["result"]["agent"]["agent_status"])
 '
 }
 
+# Reads "<agent_status> <state_change_seq>" for a pane in one herdr call.
+# state_change_seq is Herdr's monotonic per-pane transition counter.
+agent_state() {
+  herdr agent get "$1" 2>/dev/null | python3 -c '
+import json, sys
+try:
+    a = json.load(sys.stdin)["result"]["agent"]
+except Exception:
+    sys.exit(1)
+print(a.get("agent_status", ""), a.get("state_change_seq", -1))
+'
+}
+
+# Decide whether the agent actually consumed the task we just submitted, given
+# the state_change_seq captured *before* sending ($seq0).
+#
+# A task is acknowledged when the agent enters `working`. But a trivial task can
+# race idle->working->done between our polls, so catching `working` directly is
+# unreliable. state_change_seq disambiguates: passing through working advances
+# it by >=2 (e.g. idle->working->done), while a spontaneous done->idle decay --
+# the one transition that happens WITHOUT our input -- advances it by exactly 1
+# and never touches `working`. So: working/blocked now, or seq advanced >=2.
 wait_for_task_start() {
   local pane="$1"
+  local seq0="$2"
   local timeout_ms="${HERDR_TASK_START_TIMEOUT_MS:-15000}"
-  local status=""
+  local deadline=$(( SECONDS + (timeout_ms + 999) / 1000 ))
+  local status="" seq=""
 
-  if herdr agent wait "$pane" --status working --timeout "$timeout_ms" >/dev/null 2>&1; then
-    return 0
-  fi
-
-  status=$(agent_status "$pane" 2>/dev/null || true)
-  [[ "$status" == "working" || "$status" == "blocked" ]]
+  while (( SECONDS < deadline )); do
+    if read -r status seq < <(agent_state "$pane"); then
+      if [[ "$status" == "working" || "$status" == "blocked" ]]; then
+        return 0
+      fi
+      if [[ "$seq" =~ ^[0-9]+$ && "$seq0" =~ ^[0-9]+$ ]] && (( seq - seq0 >= 2 )); then
+        return 0
+      fi
+    fi
+    sleep 0.2
+  done
+  return 1
 }
 
 submit_task() {
   local pane="$1"
   local text="$2"
   local submit_delay="${HERDR_TASK_SUBMIT_DELAY_SECONDS:-0.25}"
+  local status0="" seq0=""
+
+  # Baseline the transition counter before sending so acknowledgment is judged
+  # against this exact starting point.
+  read -r status0 seq0 < <(agent_state "$pane")
+  [[ "$seq0" =~ ^[0-9]+$ ]] || seq0=0
 
   # Keep payload delivery and submission separate. A long bracketed paste can
   # still be settling when an immediate Enter from `pane run` arrives.
@@ -99,14 +135,14 @@ submit_task() {
   sleep "$submit_delay"
   herdr pane send-keys "$pane" Enter
 
-  if wait_for_task_start "$pane"; then
+  if wait_for_task_start "$pane" "$seq0"; then
     return 0
   fi
 
   # The payload may be staged in Pi's editor with the first Enter lost. Retry
   # only Enter so recovery cannot duplicate the brief.
   herdr pane send-keys "$pane" Enter
-  if wait_for_task_start "$pane"; then
+  if wait_for_task_start "$pane" "$seq0"; then
     return 0
   fi
 
@@ -199,6 +235,18 @@ print(json.load(sys.stdin)['result']['root_pane']['pane_id'])
     if ! wait_for_pi_ready "$PANE"; then
       fail_spawn "$PANE" "Pi did not become ready in pane $PANE"
     fi
+
+    # Also set the AGENT name (not just the pane title) so event-driven
+    # plugins (e.g. attention-broker) can name which co-worker changed state
+    # instead of collapsing every pi seat to "pi". Must run AFTER pi is ready:
+    # renaming a pane with no live agent blocks. herdr enforces lowercase-start,
+    # [a-z0-9_-], 1-32 chars — so sanitize first and skip if it cannot map.
+    AGENT_NAME=$(printf '%s' "$LABEL" \
+      | tr '[:upper:]' '[:lower:]' \
+      | tr -c 'a-z0-9_-' '-' \
+      | sed -E 's/^[^a-z]+//; s/-+/-/g; s/-$//' \
+      | cut -c1-32)
+    [ -n "$AGENT_NAME" ] && herdr agent rename "$PANE" "$AGENT_NAME" >/dev/null 2>&1
 
     # Report metadata: show role (if any) + agent + model on the pane
     # Report metadata: keep `agent` short ("pi") so the sidebar's state line

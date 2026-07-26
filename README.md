@@ -78,27 +78,35 @@ resolves per-user on any machine (no absolute `/home/<name>` baked in).
 
 ### pi (primary co-worker runtime)
 
-Use the `bin/herdr-agent` helper — `--role <name>` injects that role's profile
-as the pi system prompt, so callers pick a role and a model, nothing else:
+Use the `bin/herdr-agent` helper — `--role <name>` injects that role's profile as
+the pi system prompt and resolves the model, provider, and thinking tier from the
+role, so a caller normally picks only a role:
 
 ```bash
-PANE=$(herdr-agent spawn review-auth --role reviewer --model deepseek-v4-flash)
+PANE=$(herdr-agent spawn review-auth --role reviewer)
 herdr-agent task "$PANE" "<brief>"
 ```
 
+Defaults, overridable with `--model` / `--provider` / `--thinking`:
+
+| Role | Model | Provider | Thinking |
+| --- | --- | --- | --- |
+| `implementer` | `antigravity-gemini-3.6-flash` | `google-antigravity` | high |
+| `peer`, `reviewer`, `proof_auditor` | `glm-5.2` | `zai-coding-cn` | high |
+| `scout`, or no role | `deepseek-v4-flash` | `opencode-go` | max |
+
 Under the hood that resolves `${HERDER_AGENT_HOME:-$HOME/herder-agent}/profiles/<role>_instruction.md`
 and launches pi with `--append-system-prompt "$(cat <file>)"`. The equivalent
-raw invocation:
+raw invocation for the `reviewer` row:
 
 ```bash
-pi --provider opencode-go --model deepseek-v4-flash --thinking max --minimal-tui \
+pi --provider zai-coding-cn --model glm-5.2 --thinking high --minimal-tui \
    --append-system-prompt "$(cat ~/herder-agent/profiles/reviewer_instruction.md)" \
    -p "<brief>"
 ```
 
-`--role` accepts any role except `root` (root is the director, never a
-co-worker). Model stays the caller's choice — the helper only handles profile
-injection.
+`--role root` is **refused**: root is the only Herdr-aware profile, and a
+co-worker holding it would learn the protocol and could open seats of its own.
 
 ### Codex
 
@@ -115,7 +123,9 @@ Reference the root instruction from context — e.g. an `@` import in a
 @~/herder-agent/profiles/root_instruction.md
 ```
 
-Spawn Claude co-workers with their role file appended to the brief.
+Claude is the director only. Co-workers run pi (see the table above) — the
+expensive model stays with root, and `herdr-agent spawn` is the only path that
+opens a seat.
 
 ## Design notes
 

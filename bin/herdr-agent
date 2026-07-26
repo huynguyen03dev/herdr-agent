@@ -6,10 +6,13 @@
 #
 # --role NAME injects the role's system prompt from
 #   ${HERDER_AGENT_HOME:-$HOME/herder-agent}/profiles/<NAME>_instruction.md
-# (e.g. --role implementer|peer|reviewer|scout|proof_auditor). Model stays the
-# caller's choice; the helper only handles profile injection.
+# (e.g. --role implementer|peer|reviewer|scout|proof_auditor). `root` is refused:
+# it is the only Herdr-aware profile and a co-worker must never receive it.
 #
-# Default: deepseek-v4-flash / opencode-go / max
+# Model, provider, and thinking tier are resolved from role + model unless
+# overridden: implementer -> antigravity-gemini-3.6-flash,
+# peer/reviewer/proof_auditor -> glm-5.2, everything else -> deepseek-v4-flash.
+#
 # The task command sends text unchanged, requires Pi to be ready (idle or done),
 # submits long multiline prompts with paced text/Enter delivery, and returns only
 # after Pi acknowledges the task. Recovery retries Enter only, never the payload.
@@ -39,6 +42,10 @@ fail_spawn() {
   exit 1
 }
 
+# Ready means: a live pi owns the pane and is accepting input. `done` counts as
+# ready for the same reason `task` accepts it — pi can boot straight into a
+# completed first turn. A pi that failed to launch has no live agent at all, so
+# it never satisfies the `agent == pi` test and falls out via the deadline.
 wait_for_pi_ready() {
   local pane="$1"
   local deadline=$((SECONDS + 45))
@@ -52,13 +59,10 @@ wait_for_pi_ready() {
 import json, sys
 agent = json.load(sys.stdin)["result"]["agent"]
 print(agent.get("agent", ""), agent.get("agent_status", ""))
-' <<< "$info")
+' <<< "$info") || true
 
-      if [[ "$agent" == "pi" && "$status" == "idle" ]]; then
+      if [[ "$agent" == "pi" && ( "$status" == "idle" || "$status" == "done" ) ]]; then
         return 0
-      fi
-      if [[ "$status" == "done" ]]; then
-        return 1
       fi
     fi
     sleep 0.25
@@ -126,8 +130,11 @@ submit_task() {
 
   # Baseline the transition counter before sending so acknowledgment is judged
   # against this exact starting point.
-  read -r status0 seq0 < <(agent_state "$pane")
-  [[ "$seq0" =~ ^[0-9]+$ ]] || seq0=0
+  # `|| true` is load-bearing: a standalone `read` from a failed process
+  # substitution returns non-zero and `set -e` would abort submit_task with no
+  # message at all.
+  read -r status0 seq0 < <(agent_state "$pane") || true
+  [[ "${seq0:-}" =~ ^[0-9]+$ ]] || seq0=0
 
   # Keep payload delivery and submission separate. A long bracketed paste can
   # still be settling when an immediate Enter from `pane run` arrives.
@@ -155,7 +162,7 @@ submit_task() {
 cmd="${1:-}"
 shift 2>/dev/null || true
 
-MODEL="deepseek-v4-flash"
+MODEL=""             # empty -> resolved from role below unless --model passed
 PROVIDER=""          # empty → inferred from MODEL at spawn time
 THINKING="max"
 THINKING_SET=0       # 1 once --thinking is passed explicitly
@@ -180,12 +187,20 @@ case "$cmd" in
       exit 1
     fi
 
-    # Resolve an optional role profile. The pane shell reads the file at run
-    # time via $(cat ...), so only a short path is typed into the pane and the
-    # profile contents never need escaping here.
+    # Resolve an optional role profile. The pane shell reads the file
+    # at run time via $(cat ...) and injects it through --append-system-prompt.
     APPEND=""
     if [ -n "$ROLE" ]; then
       PDIR="$(profiles_dir)"
+      # Root is the only Herdr-aware profile: a co-worker holding it would learn
+      # the protocol and could open seats of its own. Filtering it out of the
+      # error listing was never enforcement — one typo was enough.
+      case "$ROLE" in
+        root|root_instruction|*/*|*..*)
+          echo "Refusing --role '$ROLE': co-workers must never receive the root profile." >&2
+          exit 1
+          ;;
+      esac
       ROLE_FILE="$PDIR/${ROLE}_instruction.md"
       if [ ! -f "$ROLE_FILE" ]; then
         echo "Unknown role '$ROLE'. Available roles:" >&2
@@ -195,25 +210,44 @@ case "$cmd" in
       APPEND=" --append-system-prompt \"\$(cat '$ROLE_FILE')\""
     fi
 
-    # Infer the provider from the model when it was not passed explicitly.
+    # Resolve the default model from the role when --model wasn't passed.
+    # implementer -> antigravity-gemini-3.6-flash (capable, high thinking);
+    # peer/reviewer/proof_auditor -> glm-5.2 (strongest co-worker for critique);
+    # everything else (scout, or no role) -> deepseek-v4-flash (cheap terrain-mapping).
+    if [ -z "$MODEL" ]; then
+      case "$ROLE" in
+        implementer)                            MODEL="antigravity-gemini-3.6-flash" ;;
+        peer|reviewer|proof_auditor)            MODEL="glm-5.2" ;;
+        *)                                      MODEL="deepseek-v4-flash" ;;
+      esac
+    fi
+
+    # Infer the provider from the model when not passed explicitly.
     if [ -z "$PROVIDER" ]; then
       case "$MODEL" in
-        glm-*)  PROVIDER="zai-coding-cn" ;;   # glm-5.2
-        *)      PROVIDER="opencode-go" ;;      # deepseek-v4-flash, mimo-v2.5-pro
+        glm-*)                 PROVIDER="zai-coding-cn" ;;      # glm-5.2
+        antigravity-gemini-*)  PROVIDER="google-antigravity" ;; # antigravity-gemini-3.6-flash
+        *)                     PROVIDER="opencode-go" ;;        # deepseek-v4-flash, mimo-v2.5-pro
       esac
     fi
 
     # Derive thinking from model + role unless the caller set it explicitly.
-    # deepseek → max (auto); mimo → high ceiling; glm → high, medium for implementer.
     if [ "$THINKING_SET" -eq 0 ]; then
       case "$MODEL" in
         glm-*)  [ "$ROLE" = "implementer" ] && THINKING="medium" || THINKING="high" ;;
         mimo-*) THINKING="high" ;;
+        antigravity-gemini-*|gemini-*) THINKING="high" ;;
         *)      THINKING="max" ;;              # deepseek-v4-flash
       esac
     fi
-    # mimo has no max tier — clamp even an explicit request.
     case "$MODEL" in mimo-*) [ "$THINKING" = "max" ] && THINKING="high" ;; esac
+
+    # Preflight the room. Without this, `set -u` aborts on an unbound
+    # HERDR_WORKSPACE_ID with a bash error instead of saying what is wrong.
+    if [ "${HERDR_ENV:-}" != "1" ] || [ -z "${HERDR_WORKSPACE_ID:-}" ]; then
+      echo "Not inside a Herdr room (HERDR_ENV=1 and HERDR_WORKSPACE_ID required)." >&2
+      exit 1
+    fi
 
     # Create tab, get pane-id
     PANE=$(herdr tab create --workspace "$HERDR_WORKSPACE_ID" 2>/dev/null | python3 -c "
@@ -228,10 +262,10 @@ print(json.load(sys.stdin)['result']['root_pane']['pane_id'])
     # Rename
     herdr pane rename "$PANE" "$LABEL" >/dev/null 2>&1
 
-    # Launch Pi, then wait until Herdr identifies this pane as an idle Pi agent.
-    # Checking identity avoids mistaking the initial idle shell for a ready agent.
+    # Launch the agent. pi uses --provider/--model/--thinking + --append-system-prompt
+    # for role injection. Runs from the current cwd so the agent operates
+    # in the project directory.
     herdr pane run "$PANE" "pi --minimal-tui --offline --provider $PROVIDER --model $MODEL --thinking $THINKING$APPEND" >/dev/null 2>&1
-
     if ! wait_for_pi_ready "$PANE"; then
       fail_spawn "$PANE" "Pi did not become ready in pane $PANE"
     fi
@@ -246,22 +280,49 @@ print(json.load(sys.stdin)['result']['root_pane']['pane_id'])
       | tr -c 'a-z0-9_-' '-' \
       | sed -E 's/^[^a-z]+//; s/-+/-/g; s/-$//' \
       | cut -c1-32)
-    [ -n "$AGENT_NAME" ] && herdr agent rename "$PANE" "$AGENT_NAME" >/dev/null 2>&1
 
-    # Report metadata: show role (if any) + agent + model on the pane
-    # Report metadata: keep `agent` short ("pi") so the sidebar's state line
-    # (idle · pi · reviewer) never truncates. Role/model/effort go to custom
-    # tokens so config.toml can split them across sidebar lines.
-    # Role goes next to state+agent on the second line.
-    # Model+effort go on a third line as separate tokens.
+    # Agent names are unique across ALL workspaces, so a second room spawning
+    # the same label loses the name — and the broker then wakes root with
+    # "pi:done" instead of naming the seat. Fall back to a workspace-qualified
+    # name, and never swallow the outcome: an unnamed seat is a supervision
+    # problem, not a cosmetic one.
+    if [ -n "$AGENT_NAME" ]; then
+      if ! herdr agent rename "$PANE" "$AGENT_NAME" >/dev/null 2>&1; then
+        QUALIFIED=$(printf '%s-%s' "$(printf '%s' "$AGENT_NAME" | cut -c1-24)" "$HERDR_WORKSPACE_ID")
+        if herdr agent rename "$PANE" "$QUALIFIED" >/dev/null 2>&1; then
+          AGENT_NAME="$QUALIFIED"
+        else
+          echo "warning: could not name agent in $PANE ('$AGENT_NAME' and '$QUALIFIED' both rejected);" \
+               "attention wakes will identify it only as 'pi'" >&2
+          AGENT_NAME=""
+        fi
+      fi
+    fi
+
+    # Report metadata: keep `agent` short so the sidebar's state line never
+    # truncates. For pi the display agent is "pi". Role, model, effort, and
+    # the sanitized name go to custom $-tokens for the sidebar rows defined
+    # in herdr-config.toml.
+    #
+    # Pretty-print the model name for the sidebar: strip provider prefixes
+    # (antigravity-, google-) and version dashes for a compact display
+    # (e.g. antigravity-gemini-3.6-flash -> gemini 3.6 flash).
+    #
+    # The TTL is deliberately shorter than a day: herdr reuses pane IDs within
+    # minutes, and metadata that outlives its seat gets shown against whatever
+    # occupies the pane next (a dead seat's role/model was observed bleeding
+    # onto a live session this way).
+    DISPLAY_MODEL=$(printf '%s' "$MODEL" \
+      | sed -E 's/^(antigravity-|google-)//; s/-/ /g')
     herdr pane report-metadata "$PANE" \
       --source herdr-agent \
       --display-agent "pi" \
       --title "$LABEL" \
+      --token name="${AGENT_NAME:-}" \
       --token role="${ROLE:-}" \
-      --token model="$MODEL" \
+      --token model="$DISPLAY_MODEL" \
       --token effort="$THINKING" \
-      --ttl-ms 86400000 >/dev/null 2>&1 || true
+      --ttl-ms "${HERDR_METADATA_TTL_MS:-7200000}" >/dev/null 2>&1 || true
 
     echo "$PANE"
     ;;

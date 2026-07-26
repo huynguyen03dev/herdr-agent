@@ -14,3 +14,14 @@ command = ["node", "attention-broker.js", "status"]
 [[events]]
 on = "pane.agent_status_changed"
 command = ["node", "attention-broker.js", "event"]
+
+# Crash backstop. A seat that dies or is closed without ever reaching
+# `done`/`blocked` emits no status change, so these are the only events that can
+# report it. Without them a crashed co-worker never wakes the root at all.
+[[events]]
+on = "pane.exited"
+command = ["node", "attention-broker.js", "event"]
+
+[[events]]
+on = "pane.closed"
+command = ["node", "attention-broker.js", "event"]

@@ -106,6 +106,22 @@ expect_named() {
 node --check "$PLUGIN_DIR/attention-broker.js" || exit 1
 reset_room
 
+# A stale pane can retain a root-prefixed name and agent label after its
+# lifecycle becomes unknown. It must not become the broker's delivery target.
+python3 - "$HARNESS/agents.json" <<'PY'
+import sys, json
+path = sys.argv[1]
+doc = json.load(open(path))
+root = next(a for a in doc["result"]["agents"] if a["pane_id"] == "wT:p1")
+root["agent"] = "codex"
+root["agent_status"] = "unknown"
+json.dump(doc, open(path, "w"))
+PY
+fire pane.agent_status_changed wT:pA working 191
+fire pane.agent_status_changed wT:pA done    192
+expect "stale named unknown pane is not a root" 0
+reset_room
+
 # A completion whose transient `done` herdr missed, with the room's constant
 # `unknown` noise interleaved. Recording `unknown` as the previous status broke
 # the working->idle check and silently dropped the wake.

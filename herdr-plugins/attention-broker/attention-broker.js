@@ -27,9 +27,11 @@ const config = readJson(path.join(configDir, "config.json"), {});
 // Root matching: herdr enforces globally-unique agent names, so a literal
 // "root" can only exist once across all workspaces. To run one root per
 // workspace, each root is named `root-<workspaceId>` (see
-// profiles/root_instruction.md) and the broker identifies roots by prefix
-// plus the event's workspace_id. `root_name` remains as an optional
-// exact-match override for single-room setups that still use a bare name.
+// profiles/root_instruction.md) and the broker identifies live agent roots by
+// prefix plus the event's workspace_id. Requiring a runtime and meaningful
+// lifecycle prevents a stale pane from hijacking wake delivery.
+// `root_name` remains as an optional exact-match override for single-room setups
+// that still use a bare name.
 const rootNameExact = stringValue(config.root_name);
 const rootPrefix = stringValue(config.root_prefix) ?? "root-";
 // How long per-seat bookkeeping survives after its terminal disappears from
@@ -61,7 +63,11 @@ const agents = listAgents();
 const workspaceId = event.data.workspace_id ?? context.workspace_id;
 const eventPaneId = event.data.pane_id ?? context.focused_pane_id;
 const roots = agents.filter(
-  (agent) => isRootName(agent.name) && (!workspaceId || agent.workspace_id === workspaceId),
+  (agent) =>
+    isRootName(agent.name) &&
+    Boolean(stringValue(agent.agent)) &&
+    isMeaningfulStatus(agent.agent_status) &&
+    (!workspaceId || agent.workspace_id === workspaceId),
 );
 
 if (roots.length !== 1) {

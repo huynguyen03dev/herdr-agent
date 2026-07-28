@@ -42,19 +42,25 @@ scheme), each root is named `root-<workspaceId>` (e.g. `root-w2`, `root-w5`).
 The broker identifies roots by the configurable prefix and routes events to the
 root whose `workspace_id` matches the event. `profiles/root_instruction.md`
 performs the rename as `herdr agent rename "$HERDR_PANE_ID" "root-${HERDR_WORKSPACE_ID}"`
-on entry.
+on entry. A root candidate must also have a live agent runtime and meaningful
+lifecycle status; a stale pane that retained a `root-*` name is ignored rather
+than receiving wake text.
 
-Link it into a named room:
+Link it (plugins are global to the user on Herdr 0.7.5+, not per-session; add
+`--session <name>` only to target another server):
 
 ```bash
-herdr --session Fantasy plugin link /mnt/d/agent-workflow/herdr-plugins/attention-broker
+herdr plugin link ~/herder-agent/herdr-plugins/attention-broker
 ```
 
 Optional config lives at the directory printed by:
 
 ```bash
-herdr --session Fantasy plugin config-dir local.attention-broker
+herdr plugin config-dir local.attention-broker
 ```
+
+No config file is required: the default `root_prefix` already matches the
+`root-<workspaceId>` scheme that `profiles/root_instruction.md` uses.
 
 Example `config.json`:
 
@@ -87,8 +93,8 @@ dir, so it never touches a live room:
 Inspect queued events and plugin command results with:
 
 ```bash
-herdr --session Fantasy plugin action invoke local.attention-broker.status
-herdr --session Fantasy plugin log list --plugin local.attention-broker
+herdr plugin action invoke local.attention-broker.status
+herdr plugin log list --plugin local.attention-broker
 ```
 
 This first slice intentionally has no periodic deadline. It replaces completion

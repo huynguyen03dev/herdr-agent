@@ -69,7 +69,42 @@ Then have an agent (or you) do the following:
    ln -sf ~/herder-agent/bin/herdr-agent ~/.local/bin/herdr-agent
    ```
 
-3. **Point each runtime at the profiles** — see *Wiring per runtime* below.
+3. **Install the Herdr config.** `herdr-config.toml` in this repo is the authored
+   config — `ctrl+space` prefix, and the sidebar rows that make a room readable
+   (`$role`, `$name`, `$model`, `$effort` come from pane metadata).
+
+   ```bash
+   cp ~/herder-agent/herdr-config.toml ~/.config/herdr/config.toml
+   herdr config check           # expect: config: ok
+   herdr server reload-config   # expect: "status":"applied"
+   ```
+
+   **Copy it, do not symlink it.** Herdr writes to `config.toml` itself (the
+   onboarding flag, for one), so a symlink turns every launch into a dirty
+   working tree. The cost is that a `git pull` touching `herdr-config.toml`
+   needs the copy re-run. A running server does **not** pick up the file on its
+   own — without `reload-config` the new rows silently never appear, which looks
+   exactly like a Herdr build that lacks the feature.
+
+4. **Link the attention broker.** Without it a Root receives no completion wakes
+   and must not dispatch co-workers.
+
+   ```bash
+   herdr plugin link ~/herder-agent/herdr-plugins/attention-broker
+   herdr plugin list            # expect: local.attention-broker ... enabled
+   ```
+
+   The link points at the repo, so `git pull` updates the plugin in place. It
+   needs `node` on PATH. Plugins are global to the user (Herdr 0.7.5+), not
+   per-session. Verify the logic without touching a live room:
+   `cd ~/herder-agent/herdr-plugins/attention-broker && ./test-wake-path.sh`.
+
+   The broker routes to a seat whose name starts with `root-`, so each Root must
+   be named `root-<workspaceId>` — `profiles/root_instruction.md` does that
+   rename on entry. A seat still named literally `root` matches nothing and that
+   room gets no wakes at all.
+
+5. **Point each runtime at the profiles** — see *Wiring per runtime* below.
 
 That's it. Paths inside the profiles use `~/herder-agent/profiles/…`, which
 resolves per-user on any machine (no absolute `/home/<name>` baked in).
@@ -91,9 +126,8 @@ Defaults, overridable with `--model` / `--provider` / `--thinking`:
 
 | Role | Model | Provider | Thinking |
 | --- | --- | --- | --- |
-| `implementer` | `antigravity-gemini-3.6-flash` | `google-antigravity` | high |
 | `peer`, `reviewer`, `proof_auditor` | `glm-5.2` | `zai-coding-cn` | high |
-| `scout`, or no role | `deepseek-v4-flash` | `opencode-go` | max |
+| `implementer`, `scout`, or no role | `deepseek-v4-flash` | `opencode-go` | max |
 
 Under the hood that resolves `${HERDER_AGENT_HOME:-$HOME/herder-agent}/profiles/<role>_instruction.md`
 and launches pi with `--append-system-prompt "$(cat <file>)"`. The equivalent

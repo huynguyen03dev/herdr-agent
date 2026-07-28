@@ -10,8 +10,8 @@
 # it is the only Herdr-aware profile and a co-worker must never receive it.
 #
 # Model, provider, and thinking tier are resolved from role + model unless
-# overridden: implementer -> antigravity-gemini-3.6-flash,
-# peer/reviewer/proof_auditor -> glm-5.2, everything else -> deepseek-v4-flash.
+# overridden: peer/reviewer/proof_auditor -> glm-5.2,
+# everything else (implementer, scout, no role) -> deepseek-v4-flash.
 #
 # The task command sends text unchanged, requires Pi to be ready (idle or done),
 # submits long multiline prompts with paced text/Enter delivery, and returns only
@@ -211,12 +211,11 @@ case "$cmd" in
     fi
 
     # Resolve the default model from the role when --model wasn't passed.
-    # implementer -> antigravity-gemini-3.6-flash (capable, high thinking);
     # peer/reviewer/proof_auditor -> glm-5.2 (strongest co-worker for critique);
-    # everything else (scout, or no role) -> deepseek-v4-flash (cheap terrain-mapping).
+    # everything else (implementer, scout, or no role) -> deepseek-v4-flash
+    # (cheap execution and terrain-mapping).
     if [ -z "$MODEL" ]; then
       case "$ROLE" in
-        implementer)                            MODEL="antigravity-gemini-3.6-flash" ;;
         peer|reviewer|proof_auditor)            MODEL="glm-5.2" ;;
         *)                                      MODEL="deepseek-v4-flash" ;;
       esac
@@ -306,7 +305,7 @@ print(json.load(sys.stdin)['result']['root_pane']['pane_id'])
     #
     # Pretty-print the model name for the sidebar: strip provider prefixes
     # (antigravity-, google-) and version dashes for a compact display
-    # (e.g. antigravity-gemini-3.6-flash -> gemini 3.6 flash).
+    # (e.g. deepseek-v4-flash -> deepseek v4 flash).
     #
     # The TTL is deliberately shorter than a day: herdr reuses pane IDs within
     # minutes, and metadata that outlives its seat gets shown against whatever

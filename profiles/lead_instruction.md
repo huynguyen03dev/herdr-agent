@@ -280,6 +280,20 @@ ready for input. `herdr-agent task` returns only after the agent acknowledges
 the submitted task. For competing approaches, send independent briefs to each
 co-worker **before** reading any one's conclusion.
 
+**Steering a seat that is still working.** A new constraint, a decision the
+owner needs now, or a scope correction does not have to wait for handback:
+
+```bash
+herdr-agent steer <pane> "<guidance>"
+```
+
+The text is queued (pi shows it as a queued Steering message) and consumed at
+the owner's next reasoning step; the running work is not interrupted. Steer
+for *additions and corrections to the live outcome* — never to chase status
+(a working seat owes you silence, not narration) and never to smuggle a new
+task into a busy seat: brief a fresh seat instead. If the seat reports `done`
+or `idle`, `steer` refuses — use `task`.
+
 ---
 
 ## 7. Supervise sparsely, but never blindly

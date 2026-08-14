@@ -2,7 +2,8 @@
 # herdr-agent — thin helper for spawning Pi and sending text through Herdr.
 # Usage:
 #   herdr-agent spawn <label> [--role NAME] [--model X] [--provider X] [--thinking X]
-#   herdr-agent task <pane-id> <text>
+#   herdr-agent task <pane-id> <text>     # seat must be ready (idle/done); waits for ack
+#   herdr-agent steer <pane-id> <text>     # mid-turn guidance while the seat is working
 #   herdr-agent bootstrap-lead   # run from the Lead seat: rename, wake path, verify
 #
 # --role NAME injects the role's system prompt from
@@ -31,6 +32,8 @@ usage() {
 Usage:
   herdr-agent spawn <label> [--role NAME] [--model X] [--provider X] [--thinking X]
   herdr-agent task <pane-id> <task text>
+  herdr-agent steer <pane-id> <guidance text>
+  herdr-agent bootstrap-lead
 EOF
 }
 
@@ -406,11 +409,52 @@ print(json.load(sys.stdin)['result']['root_pane']['pane_id'])
 
     STATUS=$(agent_status "$PANE")
     if [[ "$STATUS" != "idle" && "$STATUS" != "done" ]]; then
-      echo "Agent $PANE is $STATUS; refusing to send a task unless it is ready (idle or done)" >&2
+      echo "Agent $PANE is $STATUS; refusing to send a task unless it is ready (idle or done)." >&2
+      echo "To add an instruction while the seat is still working, use: herdr-agent steer <pane> <text>" >&2
       exit 1
     fi
 
     submit_task "$PANE" "$TEXT"
+    ;;
+
+  steer)
+    # Mid-turn guidance for a seat that is still working. Unlike `task`, there
+    # is no readiness gate and no acknowledgment wait: the runtime's input
+    # queue absorbs the text (pi shows it as a queued Steering message and
+    # consumes it at its next reasoning step). Requires only a live agent pane.
+    PANE="${1:-}"
+    if [[ $# -gt 0 ]]; then
+      shift
+    fi
+    TEXT="${*:-}"
+
+    if [ -z "$PANE" ] || [ -z "$TEXT" ]; then
+      usage
+      exit 1
+    fi
+
+    if ! INFO=$(herdr agent get "$PANE" 2>/dev/null); then
+      echo "steer: no live agent at $PANE" >&2
+      exit 1
+    fi
+    read -r AGENT STATUS <<<"$(python3 -c '
+import json, sys
+a = json.load(sys.stdin)["result"]["agent"]
+print(a.get("agent", ""), a.get("agent_status", ""))
+' <<< "$INFO")"
+    if [ -z "$AGENT" ]; then
+      echo "steer: $PANE has no live agent" >&2
+      exit 1
+    fi
+    if [ "$STATUS" != "working" ]; then
+      echo "steer: $PANE is $STATUS, not working — use: herdr-agent task $PANE <text>" >&2
+      exit 1
+    fi
+
+    herdr pane send-text "$PANE" "$TEXT"
+    sleep "${HERDR_TASK_SUBMIT_DELAY_SECONDS:-0.25}"
+    herdr pane send-keys "$PANE" Enter
+    echo "steered $PANE ($AGENT/$STATUS): queued for its next reasoning step" >&2
     ;;
 
   *)

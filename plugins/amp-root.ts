@@ -34,7 +34,7 @@ export default function (amp: PluginAPI) {
 
 	const root = amp.experimental.createAgent({
 		name: 'herder-root',
-		model: 'amp/glm-5.2',
+		model: 'amp/glm-5.3',
 		instructions: INSTRUCTIONS,
 		tools: RESTRICTED_TOOLS,
 		reasoningEffort: 'high',
@@ -49,7 +49,7 @@ export default function (amp: PluginAPI) {
 	})
 
 	// Same director profile on GPT-5.6 Luna (max reasoning). Use when you want
-	// a stronger director model than GLM-5.2. Requires a non-ChatGPT OpenAI
+	// a stronger director model than GLM-5.3. Requires a non-ChatGPT OpenAI
 	// provider route (API key), since the ChatGPT subscription rejects Luna.
 	const rootLuna = amp.experimental.createAgent({
 		name: 'herder-root-luna',

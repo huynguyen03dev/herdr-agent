@@ -18,7 +18,7 @@
 #
 # Model, provider, and thinking tier are resolved from role + model unless
 # overridden: peer -> deepseek-v4-flash (cheap execution; escalate per-task
-# with --model glm-5.2), lead -> glm-5.2 (director fallback needs strength).
+# with --model glm-5.3), lead -> glm-5.3 (director fallback needs strength).
 #
 # The task command sends text unchanged, requires Pi to be ready (idle or done),
 # submits long multiline prompts with paced text/Enter delivery, and returns only
@@ -282,12 +282,12 @@ case "$cmd" in
     fi
 
     # Resolve the default model from the role when --model wasn't passed.
-    # lead -> glm-5.2 (a spawned director fallback needs the strongest
+    # lead -> glm-5.3 (a spawned director fallback needs the strongest
     #   co-worker model); peer / no role -> deepseek-v4-flash (cheap execution
-    #   and terrain-mapping; the Lead escalates per-task with --model glm-5.2).
+    #   and terrain-mapping; the Lead escalates per-task with --model glm-5.3).
     if [ -z "$MODEL" ]; then
       case "$ROLE" in
-        lead)                                    MODEL="glm-5.2" ;;
+        lead)                                    MODEL="glm-5.3" ;;
         *)                                       MODEL="deepseek-v4-flash" ;;
       esac
     fi
@@ -295,7 +295,7 @@ case "$cmd" in
     # Infer the provider from the model when not passed explicitly.
     if [ -z "$PROVIDER" ]; then
       case "$MODEL" in
-        glm-*)                 PROVIDER="zai" ;;                # glm-5.2
+        glm-*)                 PROVIDER="zai" ;;                # glm-5.3
         *)                     PROVIDER="opencode-go" ;;        # deepseek-v4-flash
       esac
     fi

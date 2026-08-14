@@ -1,8 +1,8 @@
 // @amp-agent-mode {"key":"gemini-3.5-flash","label":"Gemini 3.5 Flash"}
 // @amp-agent-mode {"key":"deepseek-v4-flash","label":"DeepSeek V4 Flash"}
 // @amp-agent-mode {"key":"gpt-5.6-luna","label":"GPT 5.6 Luna"}
-// @amp-agent-mode {"key":"glm-5.2","label":"GLM 5.2"}
-// @amp-agent-mode {"key":"glm-5.2-high","label":"GLM 5.2 (high)"}
+// @amp-agent-mode {"key":"glm-5.3","label":"GLM 5.3"}
+// @amp-agent-mode {"key":"glm-5.3-high","label":"GLM 5.3 (high)"}
 import type { PluginAPI } from '@ampcode/plugin'
 
 // Generic coding-agent prompt for "normal" model-pinned modes (not the Herdr
@@ -94,33 +94,33 @@ export default function (amp: PluginAPI) {
 	})
 
 	const glm52 = amp.experimental.createAgent({
-		name: 'glm-5.2',
-		model: 'amp/glm-5.2',
+		name: 'glm-5.3',
+		model: 'amp/glm-5.3',
 		instructions: GENERIC_PROMPT,
 		tools: RESTRICTED_TOOLS,
 		reasoningEffort: 'medium',
 	})
 
 	amp.experimental.registerAgentMode({
-		key: 'glm-5.2',
-		label: 'GLM 5.2',
-		description: 'Normal coding mode on amp/glm-5.2 (medium reasoning).',
+		key: 'glm-5.3',
+		label: 'GLM 5.3',
+		description: 'Normal coding mode on amp/glm-5.3 (medium reasoning).',
 		color: '#3b82f6',
 		agent: glm52.definition,
 	})
 
 	const glm52High = amp.experimental.createAgent({
-		name: 'glm-5.2-high',
-		model: 'amp/glm-5.2',
+		name: 'glm-5.3-high',
+		model: 'amp/glm-5.3',
 		instructions: GENERIC_PROMPT,
 		tools: RESTRICTED_TOOLS,
 		reasoningEffort: 'high',
 	})
 
 	amp.experimental.registerAgentMode({
-		key: 'glm-5.2-high',
-		label: 'GLM 5.2 (high)',
-		description: 'Normal coding mode on amp/glm-5.2 (high reasoning).',
+		key: 'glm-5.3-high',
+		label: 'GLM 5.3 (high)',
+		description: 'Normal coding mode on amp/glm-5.3 (high reasoning).',
 		color: '#0284c7',
 		agent: glm52High.definition,
 	})

@@ -173,14 +173,14 @@ cognitive load:
   system. Never let it deliver a hard conclusion about root cause,
   architecture, security, concurrency, data integrity, or a
   large-blast-radius decision.
-- **`glm-5.2`** — your strongest Peer; deep critique, correctness/risk
+- **`glm-5.3`** — your strongest Peer; deep critique, correctness/risk
   analysis, architecture review. Step up to it **on evidence** (the default
   model's output keeps failing review and cannot iterate cleanly, or the task
   is genuinely deep cross-module analysis), not by habit. For a high-risk
   problem prefer **several independent Peers** over one answer.
 
 The helper resolves `--role peer` to deepseek by default; escalate by passing
-`--model glm-5.2`, never by hand-tuning thinking. Guard a sensitive edit with
+`--model glm-5.3`, never by hand-tuning thinking. Guard a sensitive edit with
 a stronger reviewer disposition or a proof auditor, not a costlier
 Engineer. Two rules hold at every tier: never reduce a strong Peer to a
 true/false confirmation function — give it room to find what you did not ask
@@ -262,7 +262,7 @@ you choose the disposition in the brief and the model on the command line:
 
 ```bash
 PANE=$(herdr-agent spawn <label> --role peer)                  # default: deepseek-v4-flash
-# For deep critique, escalate:  herdr-agent spawn <label> --role peer --model glm-5.2
+# For deep critique, escalate:  herdr-agent spawn <label> --role peer --model glm-5.3
 BRIEF=$(cat <<'TASK'
 Goal:
 Raw context and relevant paths:

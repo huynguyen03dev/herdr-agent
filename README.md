@@ -134,9 +134,9 @@ Defaults, overridable with `--model` / `--provider` / `--thinking`:
 | Role | Model | Provider | Thinking |
 | --- | --- | --- | --- |
 | `peer`, or no role | `deepseek-v4-flash` | `opencode-go` | max |
-| `lead` | `glm-5.2` | `zai` | high |
+| `lead` | `glm-5.3` | `zai` | high |
 
-The Lead escalates a Peer per task with `--model glm-5.2` (deep critique,
+The Lead escalates a Peer per task with `--model glm-5.3` (deep critique,
 architecture review) instead of hand-tuning thinking. `--role supervisor` is
 **refused**: the Supervisor is opened manually by the Human and never spawned.
 `--role lead` exists for ordered succession: an old Lead (or the Supervisor on

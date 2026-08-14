@@ -6,12 +6,14 @@
 #
 # --role NAME injects the role's system prompt from
 #   ${HERDER_AGENT_HOME:-$HOME/herder-agent}/profiles/<NAME>_instruction.md
-# (e.g. --role implementer|peer|reviewer|scout|proof_auditor). `root` is refused:
-# it is the only Herdr-aware profile and a co-worker must never receive it.
+# Only `peer` and `lead` are spawnable. `supervisor` is refused: the Supervisor
+# seat is opened manually by the Human and never spawned. `lead` IS spawnable:
+# it exists for ordered succession (an old Lead, or the Supervisor on the
+# Human's behalf, spawns a successor Lead, briefs it, then the old seat closes).
 #
 # Model, provider, and thinking tier are resolved from role + model unless
-# overridden: peer/reviewer/proof_auditor -> glm-5.2,
-# everything else (implementer, scout, no role) -> deepseek-v4-flash.
+# overridden: peer -> deepseek-v4-flash (cheap execution; escalate per-task
+# with --model glm-5.2), lead -> glm-5.2 (director fallback needs strength).
 #
 # The task command sends text unchanged, requires Pi to be ready (idle or done),
 # submits long multiline prompts with paced text/Enter delivery, and returns only
@@ -192,12 +194,19 @@ case "$cmd" in
     APPEND=""
     if [ -n "$ROLE" ]; then
       PDIR="$(profiles_dir)"
-      # Root is the only Herdr-aware profile: a co-worker holding it would learn
-      # the protocol and could open seats of its own. Filtering it out of the
-      # error listing was never enforcement — one typo was enough.
+      # Peer and Lead are the only spawnable roles. Supervisor is opened
+      # manually by the Human; a spawned Supervisor would answer to whoever
+      # spawned it, not to the Human. `root` is a legacy name that no longer
+      # exists. Path fragments never name a real profile file.
       case "$ROLE" in
+        peer|lead)
+          ;;
+        supervisor|supervisor_instruction)
+          echo "Refusing --role '$ROLE': the Supervisor seat is opened manually by the Human, never spawned." >&2
+          exit 1
+          ;;
         root|root_instruction|*/*|*..*)
-          echo "Refusing --role '$ROLE': co-workers must never receive the root profile." >&2
+          echo "Refusing --role '$ROLE'." >&2
           exit 1
           ;;
       esac
@@ -211,35 +220,31 @@ case "$cmd" in
     fi
 
     # Resolve the default model from the role when --model wasn't passed.
-    # peer/reviewer/proof_auditor -> glm-5.2 (strongest co-worker for critique);
-    # everything else (implementer, scout, or no role) -> deepseek-v4-flash
-    # (cheap execution and terrain-mapping).
+    # lead -> glm-5.2 (a spawned director fallback needs the strongest
+    #   co-worker model); peer / no role -> deepseek-v4-flash (cheap execution
+    #   and terrain-mapping; the Lead escalates per-task with --model glm-5.2).
     if [ -z "$MODEL" ]; then
       case "$ROLE" in
-        peer|reviewer|proof_auditor)            MODEL="glm-5.2" ;;
-        *)                                      MODEL="deepseek-v4-flash" ;;
+        lead)                                    MODEL="glm-5.2" ;;
+        *)                                       MODEL="deepseek-v4-flash" ;;
       esac
     fi
 
     # Infer the provider from the model when not passed explicitly.
     if [ -z "$PROVIDER" ]; then
       case "$MODEL" in
-        glm-*)                 PROVIDER="zai-coding-cn" ;;      # glm-5.2
-        antigravity-gemini-*)  PROVIDER="google-antigravity" ;; # antigravity-gemini-3.6-flash
-        *)                     PROVIDER="opencode-go" ;;        # deepseek-v4-flash, mimo-v2.5-pro
+        glm-*)                 PROVIDER="zai" ;;                # glm-5.2
+        *)                     PROVIDER="opencode-go" ;;        # deepseek-v4-flash
       esac
     fi
 
-    # Derive thinking from model + role unless the caller set it explicitly.
+    # Derive thinking from model unless the caller set it explicitly.
     if [ "$THINKING_SET" -eq 0 ]; then
       case "$MODEL" in
-        glm-*)  [ "$ROLE" = "implementer" ] && THINKING="medium" || THINKING="high" ;;
-        mimo-*) THINKING="high" ;;
-        antigravity-gemini-*|gemini-*) THINKING="high" ;;
+        glm-*)  THINKING="high" ;;
         *)      THINKING="max" ;;              # deepseek-v4-flash
       esac
     fi
-    case "$MODEL" in mimo-*) [ "$THINKING" = "max" ] && THINKING="high" ;; esac
 
     # Preflight the room. Without this, `set -u` aborts on an unbound
     # HERDR_WORKSPACE_ID with a bash error instead of saying what is wrong.
@@ -303,16 +308,15 @@ print(json.load(sys.stdin)['result']['root_pane']['pane_id'])
     # the sanitized name go to custom $-tokens for the sidebar rows defined
     # in herdr-config.toml.
     #
-    # Pretty-print the model name for the sidebar: strip provider prefixes
-    # (antigravity-, google-) and version dashes for a compact display
-    # (e.g. deepseek-v4-flash -> deepseek v4 flash).
+    # Pretty-print the model name for the sidebar: strip version dashes for a
+    # compact display (e.g. deepseek-v4-flash -> deepseek v4 flash).
     #
     # The TTL is deliberately shorter than a day: herdr reuses pane IDs within
     # minutes, and metadata that outlives its seat gets shown against whatever
     # occupies the pane next (a dead seat's role/model was observed bleeding
     # onto a live session this way).
     DISPLAY_MODEL=$(printf '%s' "$MODEL" \
-      | sed -E 's/^(antigravity-|google-)//; s/-/ /g')
+      | sed -E 's/-/ /g')
     herdr pane report-metadata "$PANE" \
       --source herdr-agent \
       --display-agent "pi" \

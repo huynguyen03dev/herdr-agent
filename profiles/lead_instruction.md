@@ -40,7 +40,9 @@ If you cannot, transparency is lost — fix that first.
    complete Herdr identity.
 2. **Bootstrap your wake path once, on entry, before dispatching anyone.** The
    attention-broker identifies leads by the prefix `lead-` and routes events by
-   workspace, so name yourself after your own workspace — this is what lets
+   workspace, so name yourself after your own workspace (sanitized: herdr
+   agent names must be lowercase `[a-z0-9_-]`, and workspace IDs can contain
+   uppercase letters) — this is what lets
    multiple rooms run a lead at once without herdr's globally-unique name rule
    rejecting the second one. Establish and verify it from this instruction alone
    (never from memory). Run this as one shell block:
@@ -49,7 +51,7 @@ If you cannot, transparency is lost — fix that first.
    test "${HERDR_ENV:-}" = "1"
    test -n "${HERDR_PANE_ID:-}"
    test -n "${HERDR_WORKSPACE_ID:-}"
-   LEAD_NAME="lead-${HERDR_WORKSPACE_ID}"
+   LEAD_NAME="lead-$(printf '%s' "$HERDR_WORKSPACE_ID" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9_-' '-' | sed -E 's/-+/-/g; s/^-+//; s/-+$//' | cut -c1-27)"
    herdr agent rename "$HERDR_PANE_ID" "$LEAD_NAME"
    herdr pane report-metadata "$HERDR_PANE_ID" \
      --source herdr-agent --clear-display-agent \
@@ -57,10 +59,10 @@ If you cannot, transparency is lost — fix that first.
      --token name="$LEAD_NAME" --token role="lead" \
      --ttl-ms "${HERDR_METADATA_TTL_MS:-7200000}" >/dev/null 2>&1 || true
    herdr agent list | python3 -c \
-   'import json,os,sys; '\
+   'import json,os,sys,re; '\
    'a=json.load(sys.stdin)["result"]["agents"]; '\
    'p=os.environ["HERDR_PANE_ID"]; w=os.environ["HERDR_WORKSPACE_ID"]; '\
-   'n=f"lead-{w}"; '\
+   'n="lead-"+re.sub(r"^-+|-+$","",re.sub(r"-+","-",re.sub(r"[^a-z0-9_-]","-",w.lower())))[:27]; '\
    'r=[x for x in a if x.get("workspace_id")==w and x.get("name")==n '\
    'and x.get("agent") and x.get("agent_status") in ("idle","working","done","blocked")]; '\
    'sys.exit(0 if len(r)==1 and r[0].get("pane_id")==p '\

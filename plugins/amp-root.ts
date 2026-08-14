@@ -1,5 +1,6 @@
 // @amp-agent-mode {"key":"herder-root","label":"herder root"}
 // @amp-agent-mode {"key":"herder-root-luna","label":"herder root (Luna)"}
+// @amp-agent-mode {"key":"herder-root-sol-high","label":"herder root (Sol high)"}
 // @amp-agent-mode {"key":"herder-root-sol-med","label":"herder root (Sol med)"}
 // @amp-agent-mode {"key":"herder-root-sol-low","label":"herder root (Sol low)"}
 import type { PluginAPI } from '@ampcode/plugin'
@@ -66,8 +67,24 @@ export default function (amp: PluginAPI) {
 		agent: rootLuna.definition,
 	})
 
-	// GPT-5.6 Sol — verified-working id. Two reasoning tiers so you can pick
-	// cheap-and-fast (low) or balanced (medium) for the director role.
+	// GPT-5.6 Sol — verified-working id. Three reasoning tiers so you can pick
+	// cheap-and-fast (low), balanced (medium), or deep (high) for the director role.
+	const rootSolHigh = amp.experimental.createAgent({
+		name: 'herder-root-sol-high',
+		model: 'openai/gpt-5.6-sol',
+		instructions: INSTRUCTIONS,
+		tools: RESTRICTED_TOOLS,
+		reasoningEffort: 'high',
+	})
+
+	amp.experimental.registerAgentMode({
+		key: 'herder-root-sol-high',
+		label: 'herder root (Sol high)',
+		description: 'Herdr director on GPT-5.6 Sol (high reasoning).',
+		color: '#0ea5e9',
+		agent: rootSolHigh.definition,
+	})
+
 	const rootSolMed = amp.experimental.createAgent({
 		name: 'herder-root-sol-med',
 		model: 'openai/gpt-5.6-sol',

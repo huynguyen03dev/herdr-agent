@@ -40,50 +40,19 @@ If you cannot, transparency is lost — fix that first.
    complete Herdr identity.
 2. **Bootstrap your wake path once, on entry, before dispatching anyone.** The
    attention-broker identifies leads by the prefix `lead-` and routes events by
-   workspace, so name yourself after your own workspace (sanitized: herdr
-   agent names must be lowercase `[a-z0-9_-]`, and workspace IDs can contain
-   uppercase letters) — this is what lets
-   multiple rooms run a lead at once without herdr's globally-unique name rule
-   rejecting the second one. Establish and verify it from this instruction alone
-   (never from memory). Run this as one shell block:
+   workspace, so each Lead names itself after its own workspace — this lets
+   multiple rooms run a lead at once. One command does it all — identity
+   checks, the rename (the helper sanitizes the workspace id; herdr names are
+   lowercase-only), sidebar metadata, live-state verification, and the broker
+   check:
    ```bash
-   set -e
-   test "${HERDR_ENV:-}" = "1"
-   test -n "${HERDR_PANE_ID:-}"
-   test -n "${HERDR_WORKSPACE_ID:-}"
-   LEAD_NAME="lead-$(printf '%s' "$HERDR_WORKSPACE_ID" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9_-' '-' | sed -E 's/-+/-/g; s/^-+//; s/-+$//' | cut -c1-27)"
-   herdr agent rename "$HERDR_PANE_ID" "$LEAD_NAME"
-   herdr pane report-metadata "$HERDR_PANE_ID" \
-     --source herdr-agent --clear-display-agent \
-     --title "$LEAD_NAME" \
-     --token name="$LEAD_NAME" --token role="lead" \
-     --ttl-ms "${HERDR_METADATA_TTL_MS:-7200000}" >/dev/null 2>&1 || true
-   herdr agent list | python3 -c \
-   'import json,os,sys,re; '\
-   'a=json.load(sys.stdin)["result"]["agents"]; '\
-   'p=os.environ["HERDR_PANE_ID"]; w=os.environ["HERDR_WORKSPACE_ID"]; '\
-   'n="lead-"+re.sub(r"^-+|-+$","",re.sub(r"-+","-",re.sub(r"[^a-z0-9_-]","-",w.lower())))[:27]; '\
-   'r=[x for x in a if x.get("workspace_id")==w and x.get("name")==n '\
-   'and x.get("agent") and x.get("agent_status") in ("idle","working","done","blocked")]; '\
-   'sys.exit(0 if len(r)==1 and r[0].get("pane_id")==p '\
-   'else f"invalid Lead identity: expected live {n} on {p}, got {r}")'
-   herdr plugin list | grep -E '^- local\.attention-broker .* enabled' >/dev/null
+   herdr-agent bootstrap-lead
    ```
-   Treat any non-zero command as a failed wake bootstrap: report it and do not
+   Treat a non-zero exit as a failed wake bootstrap: report it and do not
    dispatch any co-worker. Never reclaim a colliding `lead-*` name by closing a
    pane you do not own; surface the stale-room conflict for the user to resolve.
-   The `report-metadata` line publishes your lead name as the `$name` sidebar
-   token so the room shows `lead-<workspaceId>` next to the seat. Never *assert* a
-   runtime here: your integration already reports the truth (`agent_session.source`
-   `herdr:claude`, `herdr:codex`, …) and a hardcoded `--display-agent` overrides it
-   with a lie — a claude lead reporting `pi` is how that field got wrong in the
-   first place. `--clear-display-agent` removes a label inherited from whatever
-   held this pane ID before you, without claiming a new one; the sidebar then falls
-   back to the real runtime. Report under `--source herdr-agent` (the same source
-   the spawn helper uses) so your tokens *replace* a dead seat's stale ones instead
-   of sitting beside them, and keep the TTL short for the same reason — metadata
-   outliving its seat is what makes a reused pane ID read as the wrong role. If the
-   broker is absent you receive no completion wakes, so dispatch is forbidden.
+   Without the attention-broker you receive no completion wakes, so dispatch is
+   forbidden.
 3. Operate only on your Lead pane and live co-worker agents in your workspace.
    Never inspect or close a shell/non-agent pane or a pane in another workspace.
    **Never** run `herdr server stop`.

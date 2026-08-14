@@ -3,6 +3,7 @@
 # Usage:
 #   herdr-agent spawn <label> [--role NAME] [--model X] [--provider X] [--thinking X]
 #   herdr-agent task <pane-id> <text>
+#   herdr-agent bootstrap-lead   # run from the Lead seat: rename, wake path, verify
 #
 # --role NAME injects the role's system prompt from
 #   ${HERDER_AGENT_HOME:-$HOME/herder-agent}/profiles/<NAME>_instruction.md
@@ -10,6 +11,10 @@
 # seat is opened manually by the Human and never spawned. `lead` IS spawnable:
 # it exists for ordered succession (an old Lead, or the Supervisor on the
 # Human's behalf, spawns a successor Lead, briefs it, then the old seat closes).
+#
+# bootstrap-lead performs the Lead wake-path bootstrap from §1 of the lead
+# profile: identity checks, the `lead-<sanitized-workspace-id>` rename, sidebar
+# metadata, and a live-state identity verification. One command, atomic result.
 #
 # Model, provider, and thinking tier are resolved from role + model unless
 # overridden: peer -> deepseek-v4-flash (cheap execution; escalate per-task
@@ -79,6 +84,59 @@ agent_status() {
 import json, sys
 print(json.load(sys.stdin)["result"]["agent"]["agent_status"])
 '
+}
+
+# Sanitize a workspace id into a legal herdr agent-name suffix: lowercase,
+# [a-z0-9_-], collapsed dashes, trimmed, capped so "lead-" + suffix <= 32 chars.
+sanitize_workspace_id() {
+  printf '%s' "$1" \
+    | tr '[:upper:]' '[:lower:]' \
+    | tr -c 'a-z0-9_-' '-' \
+    | sed -E 's/-+/-/g; s/^-+//; s/-+$//' \
+    | cut -c1-27
+}
+
+# Wake-path bootstrap for the Lead seat (§1 of the lead profile). Verifies the
+# Herdr identity, renames this seat to lead-<sanitized-workspace-id>, publishes
+# sidebar metadata, and confirms exactly one live Lead seat with this name on
+# this pane. Exits non-zero with a message on any failure.
+cmd_bootstrap_lead() {
+  if [ "${HERDR_ENV:-}" != "1" ] || [ -z "${HERDR_PANE_ID:-}" ] || [ -z "${HERDR_WORKSPACE_ID:-}" ]; then
+    echo "bootstrap-lead: not a complete Herdr identity (HERDR_ENV=1, HERDR_PANE_ID, HERDR_WORKSPACE_ID required)." >&2
+    return 1
+  fi
+
+  LEAD_NAME="lead-$(sanitize_workspace_id "$HERDR_WORKSPACE_ID")"
+
+  herdr agent rename "$HERDR_PANE_ID" "$LEAD_NAME" || {
+    echo "bootstrap-lead: rename to '$LEAD_NAME' rejected." >&2
+    return 1
+  }
+
+  herdr pane report-metadata "$HERDR_PANE_ID" \
+    --source herdr-agent --clear-display-agent \
+    --title "$LEAD_NAME" \
+    --token name="$LEAD_NAME" --token role="lead" \
+    --ttl-ms "${HERDR_METADATA_TTL_MS:-7200000}" >/dev/null 2>&1 || true
+
+  herdr agent list | python3 -c "
+import json, os, re, sys
+agents = json.load(sys.stdin)['result']['agents']
+pane = os.environ['HERDR_PANE_ID']
+workspace = os.environ['HERDR_WORKSPACE_ID']
+name = 'lead-' + re.sub(r'^-+|-+$', '', re.sub(r'-+', '-', re.sub(r'[^a-z0-9_-]', '-', workspace.lower())))[:27]
+live = [a for a in agents if a.get('workspace_id') == workspace and a.get('name') == name
+        and a.get('agent') and a.get('agent_status') in ('idle', 'working', 'done', 'blocked')]
+if len(live) == 1 and live[0].get('pane_id') == pane:
+    print(f'bootstrap-lead: ok, wake path live as {name} on {pane}')
+    sys.exit(0)
+sys.exit(f'bootstrap-lead: expected one live {name} on {pane}, got {live}')
+"
+
+  herdr plugin list | grep -E '^- local\.attention-broker .* enabled' >/dev/null || {
+    echo "bootstrap-lead: attention-broker plugin is not enabled; no completion wakes, dispatch forbidden." >&2
+    return 1
+  }
 }
 
 # Reads "<agent_status> <state_change_seq>" for a pane in one herdr call.
@@ -170,6 +228,10 @@ THINKING="max"
 THINKING_SET=0       # 1 once --thinking is passed explicitly
 
 case "$cmd" in
+  bootstrap-lead)
+    cmd_bootstrap_lead
+    ;;
+
   spawn)
     LABEL=""
     ROLE=""

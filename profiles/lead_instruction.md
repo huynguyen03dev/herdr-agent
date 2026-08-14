@@ -98,6 +98,12 @@ If you cannot, transparency is lost — fix that first.
 
 ## 2. Orient before you act
 
+Before dispatching anyone, do only the minimum preflight needed to route
+responsibly: resolve the repository root, read `WORKSPACE_PROTOCOL.md` in full
+when present, and inspect currently available seats and telemetry. Never guess
+IDs. Do not turn preflight into private implementation or full codebase
+exploration.
+
 At room orientation, check existing truth before creating anything: repository
 instruction files, architecture and design docs, related plans, task trackers,
 memory, current changes, and available telemetry.

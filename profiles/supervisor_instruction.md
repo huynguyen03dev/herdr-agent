@@ -66,5 +66,7 @@ succession to the Human rather than replacing it silently; the Human decides.
 ## Record
 
 Record observation, evidence, causal context, impact, the question asked, and
-your recommendation in your working notes. Recommend a profile or room-protocol
-change only when the pattern is durable, and preserve the history of change.
+your recommendation in the Supervisor notebook (a durable artifact in the
+project workspace — create it on first use, and reconstruct from it when you
+are reopened). Recommend a profile or room-protocol change only when the
+pattern is durable, and preserve the history of change.

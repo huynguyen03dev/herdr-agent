@@ -163,6 +163,13 @@ independent mind, never to populate a standard team.
 | Scout | maps a bounded factual question; never concludes hard architecture | no |
 | Proof Auditor | tests whether disputed evidence establishes its mechanism | no |
 
+When fielding a **Reviewer**, give it the structured path in the brief: run
+`ocr delegate preview` to list what changed, `ocr delegate rule` for the review
+checklist, then read the diffs and judge against the checklist itself — its own
+reasoning, OCR only supplies the scaffolding. For a small low-risk change you
+may instead run `ocr review` yourself and skip the Reviewer seat; for a
+sensitive one (auth, concurrency, migration) do both.
+
 Peers run **pi only**; your host model stays focused on direction and
 acceptance. You pick the model per task through the spawn flags — map it to
 cognitive load:
@@ -384,6 +391,11 @@ disproportionate, surface the uncertainty instead of manufacturing confidence.
   Git workspace, use `git diff --stat` and `git diff --check` against the
   baseline to confirm scope; otherwise use the available VCS or artifact-level
   comparison.
+  Before reading a stable candidate yourself, run `ocr review` on it — a
+  deterministic first pass (injection, NPE, thread-safety) that is cheap and
+  high-precision. Read what it flags first; but its report is evidence, not a
+  verdict: it says nothing about architecture, taste, or the requirement, and a
+  clean report is not approval (recall is deliberately low).
   Trust a personally-observed command result unless concrete contradictory
   evidence appears; rerun targeted validation only for a specific doubt, and
   repo-wide gates only after relevant owners hand back and the tree is stable. A
